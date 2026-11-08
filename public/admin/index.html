@@ -51,6 +51,14 @@ dt{color:var(--sub);font-size:13px;margin-top:14px}
 dd{margin:2px 0 0;white-space:pre-wrap;word-break:break-word}
 .dh{display:flex;justify-content:space-between;align-items:center}
 .hide{display:none!important}
+.tabs{display:flex;gap:4px;margin:-8px 0 24px;border-bottom:1px solid var(--line)}
+.tab{border:0;background:none;padding:10px 14px;cursor:pointer;color:var(--sub);border-bottom:2px solid transparent;margin-bottom:-1px}
+.tab[aria-current="page"]{color:var(--text);border-bottom-color:var(--text);font-weight:700}
+.kwadd{display:flex;gap:10px;margin-bottom:14px}
+.kwadd input,.kwrow input[type=text]{flex:1;min-width:0;border:1px solid var(--line);border-radius:8px;padding:8px 12px;background:var(--bg)}
+.kwrow{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}
+.kwrow:last-child{border-bottom:0}
+.kwrow label{display:flex;gap:6px;align-items:center;font-size:13px;color:var(--sub);white-space:nowrap}
 @media(max-width:720px){
 .stats{grid-template-columns:repeat(2,1fr)}
 .row{grid-template-columns:1fr auto;gap:4px 12px}
@@ -74,6 +82,12 @@ dd{margin:2px 0 0;white-space:pre-wrap;word-break:break-word}
     <button id="logout" class="btn">ログアウト</button>
   </header>
 
+  <nav class="tabs" aria-label="画面の切り替え">
+    <button type="button" class="tab" id="tabInq" aria-current="page">問い合わせ</button>
+    <button type="button" class="tab" id="tabKw" aria-current="false">キーワード</button>
+  </nav>
+
+  <div id="viewInq">
   <section class="stats" aria-label="件数">
     <div class="stat"><b id="n-all">-</b><span>総問い合わせ</span></div>
     <div class="stat"><b id="n-s0">-</b><span>未対応</span></div>
@@ -97,6 +111,17 @@ dd{margin:2px 0 0;white-space:pre-wrap;word-break:break-word}
 
   <div class="list" id="list"></div>
   <p class="note" id="note"></p>
+  </div>
+
+  <div id="viewKw" class="hide">
+    <div class="kwadd">
+      <input id="kwNew" type="text" maxlength="30" placeholder="追加するキーワード" aria-label="追加するキーワード">
+      <button id="kwAdd" type="button" class="btn primary">追加</button>
+    </div>
+    <div class="list" id="kwList"></div>
+    <p class="err" id="kwMsg" role="alert"></p>
+    <p class="note">有効にしたキーワードを含むメッセージだけが、問い合わせとして記録されます。変更は次のメッセージから反映されます。</p>
+  </div>
 </main>
 
 <dialog id="dlg">
@@ -286,6 +311,117 @@ $("logout").addEventListener("click", async () => {
   clearInterval(timer); timer = null; items = [];
   show(false);
 });
+
+let kws = [];
+const KW_ERR = {
+  duplicate: "同じキーワードがすでにあります。",
+  invalid: "キーワードは1〜30文字で入力してください。",
+  changed: "他の場所で変更されました。最新の内容を表示します。",
+  "not found": "キーワードが見つかりません。最新の内容を表示します。"
+};
+
+function setView(v) {
+  $("viewInq").classList.toggle("hide", v !== "inq");
+  $("viewKw").classList.toggle("hide", v !== "kw");
+  $("tabInq").setAttribute("aria-current", v === "inq" ? "page" : "false");
+  $("tabKw").setAttribute("aria-current", v === "kw" ? "page" : "false");
+  if (v === "kw") loadKeywords();
+}
+
+async function loadKeywords() {
+  try {
+    const d = await api("keywords");
+    kws = d.items || [];
+    renderKeywords();
+  } catch (e) {
+    if (e.message === "401") { show(false); return; }
+    $("kwMsg").textContent = "キーワードを取得できませんでした。";
+  }
+}
+
+async function kwCall(action, body) {
+  $("kwMsg").textContent = "";
+  try {
+    const r = await fetch("/api/admin?action=" + action, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    if (r.status === 401) { show(false); return false; }
+    const d = await r.json();
+    if (!r.ok || !d.ok) {
+      $("kwMsg").textContent = KW_ERR[d.error] || "操作できませんでした。もう一度お試しください。";
+      if (d.error === "changed" || d.error === "not found") loadKeywords();
+      return false;
+    }
+    await loadKeywords();
+    return true;
+  } catch (e) {
+    $("kwMsg").textContent = "通信に失敗しました。";
+    return false;
+  }
+}
+
+function renderKeywords() {
+  const box = $("kwList");
+  box.replaceChildren();
+  if (kws.length === 0) {
+    const e = document.createElement("div");
+    e.className = "empty";
+    e.textContent = "キーワードがありません。上の欄から追加してください。";
+    box.appendChild(e);
+    return;
+  }
+  kws.forEach((k) => {
+    const row = document.createElement("div");
+    row.className = "kwrow";
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.maxLength = 30;
+    input.value = k.keyword;
+    input.setAttribute("aria-label", "キーワード");
+
+    const label = document.createElement("label");
+    const chk = document.createElement("input");
+    chk.type = "checkbox";
+    chk.checked = k.enabled;
+    label.append(chk, document.createTextNode("有効"));
+
+    const save = () => kwCall("kwUpdate", { id: k.id, current: k.keyword, keyword: input.value.trim(), enabled: chk.checked });
+
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.className = "btn";
+    saveBtn.textContent = "保存";
+    saveBtn.addEventListener("click", save);
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "btn";
+    delBtn.textContent = "削除";
+    delBtn.addEventListener("click", () => {
+      if (confirm("「" + k.keyword + "」を削除しますか。過去の問い合わせは消えません。")) {
+        kwCall("kwDelete", { id: k.id, current: k.keyword });
+      }
+    });
+
+    chk.addEventListener("change", save);
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") save(); });
+
+    row.append(input, label, saveBtn, delBtn);
+    box.appendChild(row);
+  });
+}
+
+$("tabInq").addEventListener("click", () => setView("inq"));
+$("tabKw").addEventListener("click", () => setView("kw"));
+$("kwAdd").addEventListener("click", async () => {
+  const v = $("kwNew").value.trim();
+  if (!v) return;
+  if (await kwCall("kwAdd", { keyword: v })) $("kwNew").value = "";
+});
+$("kwNew").addEventListener("keydown", (e) => { if (e.key === "Enter") $("kwAdd").click(); });
 
 ["q", "fKw", "fSt", "fSort"].forEach((id) => $(id).addEventListener("input", renderList));
 $("dClose").addEventListener("click", () => $("dlg").close());
