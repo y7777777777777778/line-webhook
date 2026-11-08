@@ -149,6 +149,60 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, id, status });
     }
 
+    // キーワード一覧
+    if (action === "keywords") {
+      if (req.method !== "GET") {
+        return res.status(405).json({ ok: false, error: "method not allowed" });
+      }
+
+      const url =
+        gasUrl + "?action=keywords&token=" + encodeURIComponent(gasToken);
+
+      const response = await fetch(url, { redirect: "follow" });
+      const data = await response.json();
+
+      if (!data.ok) {
+        console.error("admin api: GAS returned an error", data.error);
+        return res.status(502).json({ ok: false, error: "upstream error" });
+      }
+
+      return res.status(200).json(data);
+    }
+
+    // キーワードの追加・変更・削除
+    if (["kwAdd", "kwUpdate", "kwDelete"].includes(action)) {
+      if (req.method !== "POST") {
+        return res.status(405).json({ ok: false, error: "method not allowed" });
+      }
+
+      const b = req.body || {};
+      const payload = { action, token: gasToken };
+
+      if (typeof b.keyword === "string") payload.keyword = b.keyword.slice(0, 100);
+      if (typeof b.current === "string") payload.current = b.current.slice(0, 100);
+      if (b.id !== undefined) payload.id = Number(b.id);
+      if (typeof b.enabled === "boolean") payload.enabled = b.enabled;
+
+      const response = await fetch(gasUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        redirect: "follow"
+      });
+      const data = await response.json();
+
+      if (!data.ok) {
+        const known = ["duplicate", "invalid", "not found", "changed"];
+        if (known.includes(data.error)) {
+          return res.status(400).json({ ok: false, error: data.error });
+        }
+        console.error("admin api: GAS returned an error", data.error);
+        return res.status(502).json({ ok: false, error: "upstream error" });
+      }
+
+      return res.status(200).json({ ok: true });
+    }
+
     return res.status(400).json({ ok: false, error: "unknown action" });
 
   } catch (error) {
