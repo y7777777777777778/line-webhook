@@ -149,6 +149,50 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, id, status });
     }
 
+    // 問い合わせの削除
+    if (action === "delete") {
+      if (req.method !== "POST") {
+        return res.status(405).json({ ok: false, error: "method not allowed" });
+      }
+
+      const b = req.body || {};
+      const id = Number(b.id);
+
+      if (
+        !Number.isInteger(id) || id < 2 ||
+        typeof b.receivedAt !== "string" ||
+        typeof b.keyword !== "string" ||
+        typeof b.message !== "string"
+      ) {
+        return res.status(400).json({ ok: false, error: "bad request" });
+      }
+
+      const response = await fetch(gasUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "deleteInquiry",
+          token: gasToken,
+          id,
+          receivedAt: b.receivedAt,
+          keyword: b.keyword,
+          message: b.message
+        }),
+        redirect: "follow"
+      });
+      const data = await response.json();
+
+      if (!data.ok) {
+        if (data.error === "changed" || data.error === "not found") {
+          return res.status(400).json({ ok: false, error: data.error });
+        }
+        console.error("admin api: GAS returned an error", data.error);
+        return res.status(502).json({ ok: false, error: "upstream error" });
+      }
+
+      return res.status(200).json({ ok: true });
+    }
+
     // キーワード一覧
     if (action === "keywords") {
       if (req.method !== "GET") {
@@ -170,7 +214,7 @@ export default async function handler(req, res) {
     }
 
     // キーワードの追加・変更・削除
-    if (["kwAdd", "kwUpdate", "kwDelete"].includes(action)) {
+    if (["kwAdd", "kwUpdate", "kwDelete", "replySet"].includes(action)) {
       if (req.method !== "POST") {
         return res.status(405).json({ ok: false, error: "method not allowed" });
       }
@@ -182,6 +226,8 @@ export default async function handler(req, res) {
       if (typeof b.current === "string") payload.current = b.current.slice(0, 100);
       if (b.id !== undefined) payload.id = Number(b.id);
       if (typeof b.enabled === "boolean") payload.enabled = b.enabled;
+      if (typeof b.reply === "string") payload.reply = b.reply.slice(0, 500);
+      if (typeof b.text === "string") payload.text = b.text.slice(0, 1000);
 
       const response = await fetch(gasUrl, {
         method: "POST",
