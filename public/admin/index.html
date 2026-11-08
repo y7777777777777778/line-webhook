@@ -107,7 +107,8 @@ dd{margin:2px 0 0;white-space:pre-wrap;word-break:break-word}
     <dt>メッセージ</dt><dd id="dMsg"></dd>
     <dt>ステータス</dt><dd id="dSt"></dd>
   </dl>
-  <p class="note">ステータスの変更は、次のステップで追加します。</p>
+  <div class="tools" id="dBtns" style="margin:0"></div>
+  <p class="err" id="dErr" role="alert"></p>
 </dialog>
 
 <script>
@@ -202,7 +203,44 @@ function openDetail(x) {
   $("dKw").textContent = x.keyword;
   $("dMsg").textContent = x.message;
   $("dSt").replaceChildren(badge(x.status));
+  renderStatusButtons(x);
   $("dlg").showModal();
+}
+
+function renderStatusButtons(x) {
+  const box = $("dBtns");
+  box.replaceChildren();
+  $("dErr").textContent = "";
+  STATUS.forEach((s) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn" + (s === x.status ? " primary" : "");
+    b.textContent = s;
+    b.addEventListener("click", () => setStatus(x, s));
+    box.appendChild(b);
+  });
+}
+
+async function setStatus(x, s) {
+  if (s === x.status) return;
+  $("dErr").textContent = "";
+  try {
+    const r = await fetch("/api/admin?action=status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: x.id, status: s })
+    });
+    if (r.status === 401) { $("dlg").close(); load(); return; }
+    const d = await r.json();
+    if (!r.ok || !d.ok) throw new Error("failed");
+    x.status = s;
+    $("dSt").replaceChildren(badge(s));
+    renderStatusButtons(x);
+    renderStats();
+    renderList();
+  } catch (e) {
+    $("dErr").textContent = "ステータスを変更できませんでした。もう一度お試しください。";
+  }
 }
 
 async function load() {
