@@ -119,6 +119,36 @@ export default async function handler(req, res) {
       return res.status(200).json(data);
     }
 
+    // ステータス変更
+    if (action === "status") {
+      if (req.method !== "POST") {
+        return res.status(405).json({ ok: false, error: "method not allowed" });
+      }
+
+      const id = Number(req.body && req.body.id);
+      const status = req.body && req.body.status;
+      const allowed = ["未対応", "対応中", "対応済み"];
+
+      if (!Number.isInteger(id) || id < 2 || !allowed.includes(status)) {
+        return res.status(400).json({ ok: false, error: "bad request" });
+      }
+
+      const response = await fetch(gasUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "setStatus", token: gasToken, id, status }),
+        redirect: "follow"
+      });
+      const data = await response.json();
+
+      if (!data.ok) {
+        console.error("admin api: GAS returned an error", data.error);
+        return res.status(502).json({ ok: false, error: "upstream error" });
+      }
+
+      return res.status(200).json({ ok: true, id, status });
+    }
+
     return res.status(400).json({ ok: false, error: "unknown action" });
 
   } catch (error) {
